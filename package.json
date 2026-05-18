@@ -4,7 +4,11 @@
   "description": "VisionBank agent logout automation using Playwright",
   "main": "logout-agents.js",
   "scripts": {
+    "postinstall": "npx playwright install chromium",
     "logout": "node logout-agents.js"
+  },
+  "engines": {
+    "node": "20.x"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
