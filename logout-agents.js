@@ -79,7 +79,11 @@ async function main() {
 
   const forceRun = String(process.env.FORCE_RUN || "").toLowerCase() === "true";
 
-if (!shouldRunNow() && !forceRun) {
+  console.log("FORCE_RUN raw:", process.env.FORCE_RUN);
+  console.log("FORCE_RUN parsed:", forceRun);
+  console.log("Current Chicago time:", JSON.stringify(getChicagoTimeParts()));
+
+  if (!shouldRunNow() && !forceRun) {
     console.log("Not scheduled logout time. Exiting.");
     return;
   }
