@@ -77,7 +77,9 @@ async function main() {
     throw new Error("Missing CCM_URL, CCM_USERNAME, or CCM_PASSWORD environment variable.");
   }
 
-  if (!shouldRunNow() && process.env.FORCE_RUN !== "true") {
+  const forceRun = String(process.env.FORCE_RUN || "").toLowerCase() === "true";
+
+if (!shouldRunNow() && !forceRun) {
     console.log("Not scheduled logout time. Exiting.");
     return;
   }
