@@ -1,6 +1,6 @@
 require("dotenv").config();
 const { chromium } = require("playwright");
-const BUILD_VERSION = "2026-05-18-logout-v4-accountid";
+const BUILD_VERSION = "2026-05-18-logout-v5-accountid";
 console.log("BUILD_VERSION:", BUILD_VERSION);
 
 
@@ -87,8 +87,16 @@ async function sendEmail({ subject, html, text }) {
 }
 
 async function getAllFrames(page) {
-  await page.waitForTimeout(5000);
-  return page.frames();
+  await page.waitForTimeout(10000);
+
+const frames = page.frames();
+
+console.log(
+  "Detected frames:",
+  frames.map(f => f.url())
+);
+
+return frames;
 }
 
 async function fillFirstVisible(page, selectors, value, label) {
@@ -98,7 +106,7 @@ async function fillFirstVisible(page, selectors, value, label) {
     for (const selector of selectors) {
       try {
         const locator = frame.locator(selector).first();
-
+        console.log(`Checking selector ${selector} in frame ${frame.url()}`);
         if (await locator.count()) {
           await locator.waitFor({ state: "visible", timeout: 3000 });
           await locator.fill(value);
