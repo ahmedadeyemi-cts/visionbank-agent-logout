@@ -141,93 +141,87 @@ async function loginToCcm(page) {
   }
 
   await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(15000);
+  await page.waitForTimeout(20000);
 
   console.log("LOGIN PAGE URL:", page.url());
   console.log("LOGIN PAGE TITLE:", await page.title());
 
-  await page.waitForSelector('#GenericSignIn_txtAccountId', {
-  state: "attached",
-  timeout: 30000
-});
+  await page.screenshot({
+    path: "login-page-before-fields.png",
+    fullPage: true
+  });
 
-await page.waitForSelector('#GenericSignIn_txtUsername', {
-  state: "attached",
-  timeout: 30000
-});
+  const accountFilled = await fillFirstVisible(
+    page,
+    [
+      '#GenericSignIn_txtAccountId',
+      'input[name*="AccountId"]',
+      'input[id*="AccountId"]'
+    ],
+    CCM_ACCOUNT_ID,
+    "Account ID"
+  );
 
-await page.waitForSelector('#GenericSignIn_txtPassword, input[type="password"]', {
-  state: "attached",
-  timeout: 30000
-});
-
-console.log("Login fields attached.");
-
-await page.evaluate(({ accountId, username, password }) => {
-  const account = document.querySelector("#GenericSignIn_txtAccountId");
-  const user = document.querySelector("#GenericSignIn_txtUsername");
-  const pass =
-    document.querySelector("#GenericSignIn_txtPassword") ||
-    document.querySelector('input[type="password"]');
-
-  if (!account || !user || !pass) {
-    throw new Error("Login fields were attached check failed inside browser context.");
+  if (!accountFilled) {
+    throw new Error("Unable to locate Account ID field.");
   }
 
-  account.value = accountId;
-  user.value = username;
-  pass.value = password;
+  const usernameFilled = await fillFirstVisible(
+    page,
+    [
+      '#GenericSignIn_txtUsername',
+      'input[name*="Username"]',
+      'input[id*="Username"]',
+      'input[type="email"]',
+      'input[name="loginfmt"]'
+    ],
+    CCM_USERNAME,
+    "Username"
+  );
 
-  account.dispatchEvent(new Event("input", { bubbles: true }));
-  account.dispatchEvent(new Event("change", { bubbles: true }));
+  if (!usernameFilled) {
+    throw new Error("Unable to locate Username field.");
+  }
 
-  user.dispatchEvent(new Event("input", { bubbles: true }));
-  user.dispatchEvent(new Event("change", { bubbles: true }));
+  const passwordFilled = await fillFirstVisible(
+    page,
+    [
+      '#GenericSignIn_txtPassword',
+      'input[type="password"]',
+      'input[name*="Password"]',
+      'input[id*="Password"]'
+    ],
+    CCM_PASSWORD,
+    "Password"
+  );
 
-  pass.dispatchEvent(new Event("input", { bubbles: true }));
-  pass.dispatchEvent(new Event("change", { bubbles: true }));
-}, {
-  accountId: CCM_ACCOUNT_ID,
-  username: CCM_USERNAME,
-  password: CCM_PASSWORD
-});
-
-console.log("Credentials entered via browser context.");
+  if (!passwordFilled) {
+    throw new Error("Unable to locate Password field.");
+  }
 
   console.log("Credentials entered.");
 
-  // Screenshot before login
   await page.screenshot({
     path: "before-login-submit.png",
     fullPage: true
   });
 
-  // Click login button
-  const loginButtonSelectors = [
-    '#GenericSignIn_btnSignIn',
-    'input[value*="Sign in" i]',
-    'input[value*="Login" i]',
-    'button[type="submit"]',
-    'input[type="submit"]'
-  ];
+  const loginClicked = await clickFirstVisible(
+    page,
+    [
+      '#GenericSignIn_btnSignIn',
+      'input[value*="Sign in" i]',
+      'input[value*="Login" i]',
+      'button[type="submit"]',
+      'input[type="submit"]',
+      'button:has-text("Sign in")',
+      'button:has-text("Login")'
+    ],
+    "Login Button"
+  );
 
-  let clicked = false;
-
-  for (const selector of loginButtonSelectors) {
-    try {
-      const btn = page.locator(selector).first();
-
-      if (await btn.count()) {
-        await btn.click();
-        clicked = true;
-        console.log(`Clicked login button using ${selector}`);
-        break;
-      }
-    } catch {}
-  }
-
-  if (!clicked) {
-    console.log("Falling back to Enter key...");
+  if (!loginClicked) {
+    console.log("Login button not found. Pressing Enter.");
     await page.keyboard.press("Enter");
   }
 
@@ -235,7 +229,7 @@ console.log("Credentials entered via browser context.");
     timeout: 60000
   }).catch(() => {});
 
-  await page.waitForTimeout(10000);
+  await page.waitForTimeout(15000);
 
   console.log("POST LOGIN URL:", page.url());
   console.log("POST LOGIN TITLE:", await page.title());
@@ -245,7 +239,6 @@ console.log("Credentials entered via browser context.");
     fullPage: true
   });
 }
-
 async function findAgentRows(page) {
   return await page.locator("tr").evaluateAll(trs =>
     trs.map((tr, index) => ({
@@ -373,7 +366,10 @@ async function main() {
 });
 
 const context = await browser.newContext({
-  viewport: null,
+  viewport: {
+  width: 1920,
+  height: 1080
+},
   userAgent:
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 });
