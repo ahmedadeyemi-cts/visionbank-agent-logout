@@ -2,17 +2,7 @@ require("dotenv").config();
 const { chromium } = require("playwright");
 const BUILD_VERSION = "2026-05-18-logout-v3-accountid";
 console.log("BUILD_VERSION:", BUILD_VERSION);
-console.log("PAGE HTML SAMPLE:", html.slice(0, 8000));
-const genericIndex = html.indexOf("GenericSignIn");
 
-console.log("GENERIC SIGNIN INDEX:", genericIndex);
-
-if (genericIndex >= 0) {
-  console.log(
-    "GENERIC SIGNIN HTML:",
-    html.slice(Math.max(0, genericIndex - 2000), genericIndex + 12000)
-  );
-}
 
 const CCM_URL = process.env.CCM_URL;
 const CCM_USERNAME = process.env.CCM_USERNAME;
@@ -157,7 +147,17 @@ async function loginToCcm(page) {
   console.log("LOGIN PAGE TITLE:", await page.title());
 
   const html = await page.content();
+  console.log("PAGE HTML SAMPLE:", html.slice(0, 8000));
 
+const genericIndex = html.indexOf("GenericSignIn");
+console.log("GENERIC SIGNIN INDEX:", genericIndex);
+
+if (genericIndex >= 0) {
+  console.log(
+    "GENERIC SIGNIN HTML:",
+    html.slice(Math.max(0, genericIndex - 2000), genericIndex + 12000)
+  );
+}
   console.log("PAGE HTML SAMPLE:", html.slice(0, 8000));
 
   const fieldCandidates = [
@@ -379,7 +379,7 @@ async function main() {
   }
 
   const browser = await chromium.launch({
-  headless: false,
+  headless: true,
   args: [
     "--disable-blink-features=AutomationControlled",
     "--no-sandbox",
