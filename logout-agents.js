@@ -5,6 +5,7 @@ console.log("BUILD_VERSION:", BUILD_VERSION);
 
 const CCM_URL = process.env.CCM_URL;
 const CCM_USERNAME = process.env.CCM_USERNAME;
+const CCM_ACCOUNT_ID = process.env.CCM_ACCOUNT_ID;
 const CCM_PASSWORD = process.env.CCM_PASSWORD;
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 const ALERT_TO = process.env.ALERT_TO;
@@ -134,67 +135,113 @@ async function clickFirstVisible(page, selectors, label) {
 async function loginToCcm(page) {
   console.log("Attempting CCM login...");
 
+  if (!CCM_ACCOUNT_ID) {
+    throw new Error("Missing CCM_ACCOUNT_ID environment variable.");
+  }
+
   await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
-  await page.waitForTimeout(15000);
+  await page.waitForTimeout(10000);
 
   console.log("LOGIN PAGE URL:", page.url());
   console.log("LOGIN PAGE TITLE:", await page.title());
 
-  // dump body html
   const html = await page.content();
-  console.log("PAGE HTML SAMPLE:", html.slice(0, 5000));
 
-  // wait for any visible text/password inputs
-  try {
-    await page.waitForSelector('input[type="password"]', {
-      timeout: 30000
-    });
-  } catch {
-    console.log("Password field never appeared.");
+  console.log("PAGE HTML SAMPLE:", html.slice(0, 8000));
+
+  const fieldCandidates = [
+    {
+      label: "account id",
+      value: CCM_ACCOUNT_ID,
+      selectors: [
+        'input[id*="Account" i]',
+        'input[name*="Account" i]',
+        'input[id*="AccountId" i]',
+        'input[name*="AccountId" i]',
+        'input[id*="txtAccount" i]',
+        'input[name*="txtAccount" i]'
+      ]
+    },
+    {
+      label: "username",
+      value: CCM_USERNAME,
+      selectors: [
+        'input[id*="UserName" i]',
+        'input[name*="UserName" i]',
+        'input[id*="Username" i]',
+        'input[name*="Username" i]',
+        'input[id*="txtUser" i]',
+        'input[name*="txtUser" i]'
+      ]
+    },
+    {
+      label: "password",
+      value: CCM_PASSWORD,
+      selectors: [
+        'input[type="password"]',
+        'input[id*="Password" i]',
+        'input[name*="Password" i]',
+        'input[id*="txtPassword" i]',
+        'input[name*="txtPassword" i]'
+      ]
+    }
+  ];
+
+  for (const field of fieldCandidates) {
+    let filled = false;
+
+    for (const selector of field.selectors) {
+      const locator = page.locator(selector).first();
+
+      if (await locator.count()) {
+        try {
+          await locator.waitFor({ state: "visible", timeout: 5000 });
+          await locator.fill(field.value);
+          console.log(`Filled ${field.label} using ${selector}`);
+          filled = true;
+          break;
+        } catch {}
+      }
+    }
+
+    if (!filled) {
+      console.log(`Could not fill ${field.label} with direct selector.`);
+    }
   }
 
-  const allInputs = await page.locator("input").evaluateAll(inputs =>
-    inputs.map((input, index) => ({
-      index,
-      type: input.type,
-      id: input.id,
-      name: input.name,
-      placeholder: input.placeholder,
-      className: input.className,
-      outerHTML: input.outerHTML.slice(0, 300)
-    }))
+  const visibleInputs = page.locator('input:not([type="hidden"])');
+  const visibleCount = await visibleInputs.count();
+
+  console.log("VISIBLE INPUT COUNT:", visibleCount);
+
+  if (visibleCount >= 3) {
+    await visibleInputs.nth(0).fill(CCM_ACCOUNT_ID);
+    await visibleInputs.nth(1).fill(CCM_USERNAME);
+    await visibleInputs.nth(2).fill(CCM_PASSWORD);
+    console.log("Filled account, username, password by visible input order.");
+  } else {
+    await page.screenshot({ path: "login-fields-missing.png", fullPage: true });
+    throw new Error("Login fields are still not visible. Need full HTML around GenericSignIn controls.");
+  }
+
+  const clicked = await clickFirstVisible(
+    page,
+    [
+      'input[type="submit"]',
+      'button[type="submit"]',
+      'input[value*="Sign" i]',
+      'input[value*="Login" i]',
+      'button:has-text("Sign in")',
+      'button:has-text("Login")',
+      'a:has-text("Sign in")',
+      'a:has-text("Login")'
+    ],
+    "login button"
   );
 
-  console.log("ALL INPUTS:", JSON.stringify(allInputs, null, 2));
-
-  // try direct selectors now
-  const username = page.locator('input[type="text"]').first();
-  const password = page.locator('input[type="password"]').first();
-
-  if (!(await username.count()) || !(await password.count())) {
-    await page.screenshot({
-      path: "login-fields-missing.png",
-      fullPage: true
-    });
-
-    throw new Error("Username/password fields still not rendered.");
-  }
-
-  await username.fill(CCM_USERNAME);
-  console.log("Filled username");
-
-  await password.fill(CCM_PASSWORD);
-  console.log("Filled password");
-
-  // attempt login
-  const submit = page.locator('input[type="submit"], button[type="submit"]').first();
-
-  if (await submit.count()) {
-    await submit.click();
-    console.log("Clicked submit");
-  } else {
+  if (!clicked) {
     await page.keyboard.press("Enter");
-    console.log("Pressed Enter");
+    console.log("Pressed Enter to submit login form.");
   }
 
   await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
@@ -203,10 +250,7 @@ async function loginToCcm(page) {
   console.log("POST LOGIN TITLE:", await page.title());
   console.log("POST LOGIN URL:", page.url());
 
-  await page.screenshot({
-    path: "after-login.png",
-    fullPage: true
-  });
+  await page.screenshot({ path: "after-login.png", fullPage: true });
 }
 
 async function findAgentRows(page) {
