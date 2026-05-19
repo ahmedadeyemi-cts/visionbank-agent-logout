@@ -378,7 +378,7 @@ async function main() {
     return;
   }
 
-  const browser = await chromium.launch({
+ const browser = await chromium.launch({
   headless: true,
   args: [
     "--disable-blink-features=AutomationControlled",
@@ -389,13 +389,13 @@ async function main() {
 });
 
 const context = await browser.newContext({
-  viewport: { width: 1600, height: 1000 },
+  viewport: null,
   userAgent:
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 });
 
 const page = await context.newPage();
-
+await page.emulateMedia({ media: "screen" });
 await page.addInitScript(() => {
   Object.defineProperty(navigator, "webdriver", {
     get: () => false
@@ -404,7 +404,7 @@ await page.addInitScript(() => {
   try {
     console.log("Opening CCM page...");
     await page.goto(CCM_URL, { waitUntil: "networkidle", timeout: 60000 });
-
+    await page.waitForTimeout(15000);
     console.log("Page title:", await page.title());
     await page.screenshot({ path: "ccm-login-page.png", fullPage: true });
 
