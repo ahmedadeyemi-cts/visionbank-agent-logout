@@ -121,53 +121,82 @@ async function clickFirstVisible(page, selectors, label) {
 async function loginToCcm(page) {
   console.log("Attempting CCM login...");
 
+  const inputs = await page.locator("input").evaluateAll(inputs =>
+    inputs.map((input, index) => ({
+      index,
+      type: input.type,
+      id: input.id,
+      name: input.name,
+      placeholder: input.placeholder,
+      value: input.value,
+      outerHTML: input.outerHTML.slice(0, 300)
+    }))
+  );
+
+  console.log("LOGIN PAGE INPUTS:", JSON.stringify(inputs, null, 2));
+
+  const usernameSelectors = [
+    'input[type="text"]',
+    'input[type="email"]',
+    'input:not([type])',
+    'input[id*="user" i]',
+    'input[name*="user" i]',
+    'input[id*="login" i]',
+    'input[name*="login" i]'
+  ];
+
+  const passwordSelectors = [
+    'input[type="password"]',
+    'input[id*="pass" i]',
+    'input[name*="pass" i]'
+  ];
+
   const usernameFilled = await fillFirstVisible(
     page,
-    [
-      'input[name="UserName"]',
-      'input[name="Username"]',
-      'input[name="username"]',
-      'input[name="txtUserName"]',
-      'input[id*="UserName"]',
-      'input[id*="Username"]',
-      'input[id*="user"]',
-      'input[type="text"]'
-    ],
+    usernameSelectors,
     CCM_USERNAME,
     "username"
   );
 
   const passwordFilled = await fillFirstVisible(
     page,
-    [
-      'input[name="Password"]',
-      'input[name="password"]',
-      'input[name="txtPassword"]',
-      'input[id*="Password"]',
-      'input[id*="password"]',
-      'input[type="password"]'
-    ],
+    passwordSelectors,
     CCM_PASSWORD,
     "password"
   );
 
   if (!usernameFilled || !passwordFilled) {
     await page.screenshot({ path: "login-fields-not-found.png", fullPage: true });
-    throw new Error("Unable to find CCM login username/password fields.");
+    throw new Error("Unable to find CCM login username/password fields. Check LOGIN PAGE INPUTS in logs.");
   }
+
+  const buttons = await page.locator("input, button, a").evaluateAll(elements =>
+    elements.map((el, index) => ({
+      index,
+      tag: el.tagName,
+      type: el.getAttribute("type"),
+      id: el.id,
+      name: el.getAttribute("name"),
+      value: el.getAttribute("value"),
+      text: el.innerText,
+      outerHTML: el.outerHTML.slice(0, 300)
+    }))
+  );
+
+  console.log("LOGIN PAGE BUTTONS:", JSON.stringify(buttons, null, 2));
 
   const clicked = await clickFirstVisible(
     page,
     [
       'input[type="submit"]',
       'button[type="submit"]',
-      'input[value*="Sign"]',
-      'input[value*="Login"]',
-      'input[value*="Log"]',
+      'input[value*="Sign" i]',
+      'input[value*="Login" i]',
+      'input[value*="Log" i]',
       'button:has-text("Sign in")',
       'button:has-text("Login")',
-      'text=Sign in',
-      'text=Login'
+      'a:has-text("Sign in")',
+      'a:has-text("Login")'
     ],
     "login button"
   );
@@ -183,7 +212,6 @@ async function loginToCcm(page) {
   console.log("Post-login title:", await page.title());
   await page.screenshot({ path: "after-login.png", fullPage: true });
 }
-
 async function findAgentRows(page) {
   const rows = await page.locator("tr").evaluateAll((trs) => {
     return trs.map((tr, index) => ({
