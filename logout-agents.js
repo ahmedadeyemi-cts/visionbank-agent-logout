@@ -134,92 +134,79 @@ async function clickFirstVisible(page, selectors, label) {
 async function loginToCcm(page) {
   console.log("Attempting CCM login...");
 
-  await page.waitForLoadState("domcontentloaded", { timeout: 30000 }).catch(() => {});
-  await page.waitForTimeout(5000);
+  await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
+  await page.waitForTimeout(15000);
 
   console.log("LOGIN PAGE URL:", page.url());
   console.log("LOGIN PAGE TITLE:", await page.title());
 
-  const frames = await getAllFrames(page);
+  // dump body html
+  const html = await page.content();
+  console.log("PAGE HTML SAMPLE:", html.slice(0, 5000));
 
-  for (const frame of frames) {
-    const inputs = await frame.locator("input").evaluateAll(inputs =>
-      inputs.map((input, index) => ({
-        index,
-        type: input.type,
-        id: input.id,
-        name: input.name,
-        placeholder: input.placeholder,
-        value: input.value,
-        outerHTML: input.outerHTML.slice(0, 250)
-      }))
-    ).catch(() => []);
-
-    console.log(`FRAME URL: ${frame.url()}`);
-    console.log("FRAME INPUTS:", JSON.stringify(inputs, null, 2));
+  // wait for any visible text/password inputs
+  try {
+    await page.waitForSelector('input[type="password"]', {
+      timeout: 30000
+    });
+  } catch {
+    console.log("Password field never appeared.");
   }
 
-  const usernameFilled = await fillFirstVisible(
-    page,
-    [
-      'input[type="text"]',
-      'input[type="email"]',
-      'input:not([type])',
-      'input[name*="user" i]',
-      'input[id*="user" i]',
-      'input[name*="login" i]',
-      'input[id*="login" i]',
-      'input[name*="email" i]',
-      'input[id*="email" i]'
-    ],
-    CCM_USERNAME,
-    "username"
+  const allInputs = await page.locator("input").evaluateAll(inputs =>
+    inputs.map((input, index) => ({
+      index,
+      type: input.type,
+      id: input.id,
+      name: input.name,
+      placeholder: input.placeholder,
+      className: input.className,
+      outerHTML: input.outerHTML.slice(0, 300)
+    }))
   );
 
-  const passwordFilled = await fillFirstVisible(
-    page,
-    [
-      'input[type="password"]',
-      'input[name*="pass" i]',
-      'input[id*="pass" i]'
-    ],
-    CCM_PASSWORD,
-    "password"
-  );
+  console.log("ALL INPUTS:", JSON.stringify(allInputs, null, 2));
 
-  if (!usernameFilled || !passwordFilled) {
-    await page.screenshot({ path: "login-fields-not-found.png", fullPage: true });
-    throw new Error("Unable to find CCM login username/password fields after checking all frames.");
+  // try direct selectors now
+  const username = page.locator('input[type="text"]').first();
+  const password = page.locator('input[type="password"]').first();
+
+  if (!(await username.count()) || !(await password.count())) {
+    await page.screenshot({
+      path: "login-fields-missing.png",
+      fullPage: true
+    });
+
+    throw new Error("Username/password fields still not rendered.");
   }
 
-  const clicked = await clickFirstVisible(
-    page,
-    [
-      'input[type="submit"]',
-      'button[type="submit"]',
-      'input[value*="Sign" i]',
-      'input[value*="Login" i]',
-      'input[value*="Log" i]',
-      'button:has-text("Sign in")',
-      'button:has-text("Login")',
-      'a:has-text("Sign in")',
-      'a:has-text("Login")'
-    ],
-    "login button"
-  );
+  await username.fill(CCM_USERNAME);
+  console.log("Filled username");
 
-  if (!clicked) {
+  await password.fill(CCM_PASSWORD);
+  console.log("Filled password");
+
+  // attempt login
+  const submit = page.locator('input[type="submit"], button[type="submit"]').first();
+
+  if (await submit.count()) {
+    await submit.click();
+    console.log("Clicked submit");
+  } else {
     await page.keyboard.press("Enter");
-    console.log("Pressed Enter to submit login form.");
+    console.log("Pressed Enter");
   }
 
-  await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
-  await page.waitForTimeout(5000);
+  await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
+  await page.waitForTimeout(10000);
 
-  console.log("Post-login title:", await page.title());
-  console.log("Post-login URL:", page.url());
+  console.log("POST LOGIN TITLE:", await page.title());
+  console.log("POST LOGIN URL:", page.url());
 
-  await page.screenshot({ path: "after-login.png", fullPage: true });
+  await page.screenshot({
+    path: "after-login.png",
+    fullPage: true
+  });
 }
 
 async function findAgentRows(page) {
