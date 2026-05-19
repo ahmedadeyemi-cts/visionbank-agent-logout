@@ -1,5 +1,7 @@
 require("dotenv").config();
 const { chromium } = require("playwright");
+const BUILD_VERSION = "2026-05-18-logout-v2";
+console.log("BUILD_VERSION:", BUILD_VERSION);
 
 const CCM_URL = process.env.CCM_URL;
 const CCM_USERNAME = process.env.CCM_USERNAME;
