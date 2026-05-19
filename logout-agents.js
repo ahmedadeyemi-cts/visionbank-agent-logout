@@ -9,6 +9,10 @@ const ALERT_TO = process.env.ALERT_TO;
 const ALERT_CC = process.env.ALERT_CC || "";
 const TIMEZONE = process.env.TIMEZONE || "America/Chicago";
 
+const FORCE_RUN = String(process.env.FORCE_RUN || "").toLowerCase() === "true";
+const DRY_RUN = String(process.env.DRY_RUN || "true").toLowerCase() === "true";
+const TARGET_AGENT_NAME = process.env.TARGET_AGENT_NAME || "";
+
 function getChicagoTimeParts() {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-US", {
@@ -41,10 +45,18 @@ function shouldRunNow() {
 }
 
 async function sendEmail({ subject, html, text }) {
-  if (!BREVO_API_KEY || !ALERT_TO) return;
+  if (!BREVO_API_KEY || !ALERT_TO) {
+    console.log("Email skipped. Missing BREVO_API_KEY or ALERT_TO.");
+    return;
+  }
 
-  const to = ALERT_TO.split(",").map(email => ({ email: email.trim() })).filter(x => x.email);
-  const cc = ALERT_CC.split(",").map(email => ({ email: email.trim() })).filter(x => x.email);
+  const to = ALERT_TO.split(",")
+    .map(email => ({ email: email.trim() }))
+    .filter(x => x.email);
+
+  const cc = ALERT_CC.split(",")
+    .map(email => ({ email: email.trim() }))
+    .filter(x => x.email);
 
   const payload = {
     sender: {
@@ -72,18 +84,216 @@ async function sendEmail({ subject, html, text }) {
   console.log("Brevo status:", res.status, responseText);
 }
 
+async function fillFirstVisible(page, selectors, value, label) {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+
+    if (await locator.count()) {
+      try {
+        await locator.waitFor({ state: "visible", timeout: 3000 });
+        await locator.fill(value);
+        console.log(`Filled ${label} using selector: ${selector}`);
+        return true;
+      } catch {}
+    }
+  }
+
+  return false;
+}
+
+async function clickFirstVisible(page, selectors, label) {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+
+    if (await locator.count()) {
+      try {
+        await locator.waitFor({ state: "visible", timeout: 3000 });
+        await locator.click();
+        console.log(`Clicked ${label} using selector: ${selector}`);
+        return true;
+      } catch {}
+    }
+  }
+
+  return false;
+}
+
+async function loginToCcm(page) {
+  console.log("Attempting CCM login...");
+
+  const usernameFilled = await fillFirstVisible(
+    page,
+    [
+      'input[name="UserName"]',
+      'input[name="Username"]',
+      'input[name="username"]',
+      'input[name="txtUserName"]',
+      'input[id*="UserName"]',
+      'input[id*="Username"]',
+      'input[id*="user"]',
+      'input[type="text"]'
+    ],
+    CCM_USERNAME,
+    "username"
+  );
+
+  const passwordFilled = await fillFirstVisible(
+    page,
+    [
+      'input[name="Password"]',
+      'input[name="password"]',
+      'input[name="txtPassword"]',
+      'input[id*="Password"]',
+      'input[id*="password"]',
+      'input[type="password"]'
+    ],
+    CCM_PASSWORD,
+    "password"
+  );
+
+  if (!usernameFilled || !passwordFilled) {
+    await page.screenshot({ path: "login-fields-not-found.png", fullPage: true });
+    throw new Error("Unable to find CCM login username/password fields.");
+  }
+
+  const clicked = await clickFirstVisible(
+    page,
+    [
+      'input[type="submit"]',
+      'button[type="submit"]',
+      'input[value*="Sign"]',
+      'input[value*="Login"]',
+      'input[value*="Log"]',
+      'button:has-text("Sign in")',
+      'button:has-text("Login")',
+      'text=Sign in',
+      'text=Login'
+    ],
+    "login button"
+  );
+
+  if (!clicked) {
+    await page.keyboard.press("Enter");
+    console.log("Pressed Enter to submit login form.");
+  }
+
+  await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(3000);
+
+  console.log("Post-login title:", await page.title());
+  await page.screenshot({ path: "after-login.png", fullPage: true });
+}
+
+async function findAgentRows(page) {
+  const rows = await page.locator("tr").evaluateAll((trs) => {
+    return trs.map((tr, index) => ({
+      index,
+      text: tr.innerText || ""
+    })).filter(r => r.text.trim().length > 0);
+  });
+
+  return rows;
+}
+
+async function selectAgentRows(page) {
+  console.log("Finding logged-in agent rows...");
+
+  const rows = await findAgentRows(page);
+  console.log(`Detected ${rows.length} table rows.`);
+
+  const matchingRows = rows.filter(r => {
+    const text = r.text.toLowerCase();
+
+    if (TARGET_AGENT_NAME) {
+      return text.includes(TARGET_AGENT_NAME.toLowerCase());
+    }
+
+    return (
+      text.includes("not set") ||
+      text.includes("available") ||
+      text.includes("not available") ||
+      text.includes("on break") ||
+      text.includes("wrap") ||
+      text.includes("call")
+    );
+  });
+
+  console.log("Matching agent rows:", JSON.stringify(matchingRows, null, 2));
+
+  if (!matchingRows.length) {
+    await page.screenshot({ path: "no-agent-rows-found.png", fullPage: true });
+    return [];
+  }
+
+  const selectedAgents = [];
+
+  for (const row of matchingRows) {
+    const tr = page.locator("tr").nth(row.index);
+    const checkbox = tr.locator('input[type="checkbox"]').first();
+
+    if (await checkbox.count()) {
+      const agentName = row.text.split("\n").map(x => x.trim()).filter(Boolean)[0] || row.text.slice(0, 80);
+
+      if (!DRY_RUN) {
+        await checkbox.check({ force: true });
+      }
+
+      selectedAgents.push(agentName);
+      console.log(`${DRY_RUN ? "DRY RUN selected" : "Selected"} agent: ${agentName}`);
+    }
+  }
+
+  return selectedAgents;
+}
+
+async function logoutSelectedAgents(page) {
+  if (DRY_RUN) {
+    console.log("DRY_RUN=true, skipping Log Agent Out click.");
+    return;
+  }
+
+  console.log("Clicking Log Agent Out...");
+
+  page.once("dialog", async dialog => {
+    console.log("Confirmation dialog:", dialog.message());
+    await dialog.accept();
+    console.log("Confirmation accepted.");
+  });
+
+  const clicked = await clickFirstVisible(
+    page,
+    [
+      'input[value="Log Agent Out"]',
+      'input[value*="Log Agent Out"]',
+      'button:has-text("Log Agent Out")',
+      'a:has-text("Log Agent Out")',
+      'text=Log Agent Out'
+    ],
+    "Log Agent Out"
+  );
+
+  if (!clicked) {
+    await page.screenshot({ path: "logout-button-not-found.png", fullPage: true });
+    throw new Error("Unable to find Log Agent Out button.");
+  }
+
+  await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(3000);
+  await page.screenshot({ path: "after-agent-logout.png", fullPage: true });
+}
+
 async function main() {
   if (!CCM_URL || !CCM_USERNAME || !CCM_PASSWORD) {
     throw new Error("Missing CCM_URL, CCM_USERNAME, or CCM_PASSWORD environment variable.");
   }
 
-  const forceRun = String(process.env.FORCE_RUN || "").toLowerCase() === "true";
-
   console.log("FORCE_RUN raw:", process.env.FORCE_RUN);
-  console.log("FORCE_RUN parsed:", forceRun);
+  console.log("FORCE_RUN parsed:", FORCE_RUN);
+  console.log("DRY_RUN parsed:", DRY_RUN);
+  console.log("TARGET_AGENT_NAME:", TARGET_AGENT_NAME || "(all matching logged-in agents)");
   console.log("Current Chicago time:", JSON.stringify(getChicagoTimeParts()));
 
-  if (!shouldRunNow() && !forceRun) {
+  if (!shouldRunNow() && !FORCE_RUN) {
     console.log("Not scheduled logout time. Exiting.");
     return;
   }
@@ -92,30 +302,65 @@ async function main() {
     headless: true
   });
 
-  const page = await browser.newPage();
+  const page = await browser.newPage({
+    viewport: { width: 1600, height: 1000 }
+  });
 
   try {
     console.log("Opening CCM page...");
-    await page.goto(CCM_URL, { waitUntil: "networkidle" });
+    await page.goto(CCM_URL, { waitUntil: "networkidle", timeout: 60000 });
 
     console.log("Page title:", await page.title());
-
-    // TODO: We will adjust these selectors after seeing the login page HTML.
-    // This is intentionally conservative so we do not guess the login fields.
     await page.screenshot({ path: "ccm-login-page.png", fullPage: true });
 
+    await loginToCcm(page);
+
+    const title = await page.title();
+    const bodyText = await page.locator("body").innerText().catch(() => "");
+
+    if (/sign in|login/i.test(title) || /sign in|login/i.test(bodyText.slice(0, 500))) {
+      throw new Error("Login appears unsuccessful. Still on sign-in page.");
+    }
+
+    const selectedAgents = await selectAgentRows(page);
+
+    if (!selectedAgents.length) {
+      await sendEmail({
+        subject: "VisionBank Agent Logout Automation - No Agents Found",
+        text: "No matching logged-in agents were found.",
+        html: `
+          <p>No matching logged-in agents were found.</p>
+          <p><strong>Target Agent:</strong> ${TARGET_AGENT_NAME || "All matching agents"}</p>
+          <p><strong>Dry Run:</strong> ${DRY_RUN}</p>
+        `
+      });
+
+      console.log("No matching agents found.");
+      return;
+    }
+
+    await logoutSelectedAgents(page);
+
     await sendEmail({
-      subject: "VisionBank Agent Logout Automation Test",
-      text: "The automation opened the CCM page successfully. Next step is mapping login fields and logout controls.",
+      subject: DRY_RUN
+        ? "VisionBank Agent Logout Automation - Dry Run"
+        : "VisionBank Agent Logout Automation - Completed",
+      text: `Agents processed: ${selectedAgents.join(", ")}`,
       html: `
-        <p>The automation opened the CCM page successfully.</p>
-        <p>Next step is mapping the login fields and logout controls.</p>
+        <h2>VisionBank Agent Logout Automation</h2>
+        <p><strong>Dry Run:</strong> ${DRY_RUN}</p>
+        <p><strong>Processed Agents:</strong></p>
+        <ul>
+          ${selectedAgents.map(a => `<li>${a}</li>`).join("")}
+        </ul>
+        <p><strong>Chicago Time:</strong> ${JSON.stringify(getChicagoTimeParts())}</p>
       `
     });
 
-    console.log("Automation reached CCM page successfully.");
+    console.log("Automation completed successfully.");
   } catch (err) {
     console.error("Automation failed:", err);
+    await page.screenshot({ path: "automation-failed.png", fullPage: true }).catch(() => {});
 
     await sendEmail({
       subject: "VisionBank Agent Logout Automation Failed",
