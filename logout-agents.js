@@ -146,30 +146,53 @@ async function loginToCcm(page) {
   console.log("LOGIN PAGE URL:", page.url());
   console.log("LOGIN PAGE TITLE:", await page.title());
 
-  // Wait specifically for ASP.NET login fields
   await page.waitForSelector('#GenericSignIn_txtAccountId', {
-    timeout: 30000
-  });
+  state: "attached",
+  timeout: 30000
+});
 
-  await page.waitForSelector('#GenericSignIn_txtUsername', {
-    timeout: 30000
-  });
+await page.waitForSelector('#GenericSignIn_txtUsername', {
+  state: "attached",
+  timeout: 30000
+});
 
-  await page.waitForSelector('input[type="password"]', {
-    timeout: 30000
-  });
+await page.waitForSelector('#GenericSignIn_txtPassword, input[type="password"]', {
+  state: "attached",
+  timeout: 30000
+});
 
-  console.log("Login fields detected.");
+console.log("Login fields attached.");
 
-  // Fill fields
-  await page.locator('#GenericSignIn_txtAccountId')
-    .fill(CCM_ACCOUNT_ID);
+await page.evaluate(({ accountId, username, password }) => {
+  const account = document.querySelector("#GenericSignIn_txtAccountId");
+  const user = document.querySelector("#GenericSignIn_txtUsername");
+  const pass =
+    document.querySelector("#GenericSignIn_txtPassword") ||
+    document.querySelector('input[type="password"]');
 
-  await page.locator('#GenericSignIn_txtUsername')
-    .fill(CCM_USERNAME);
+  if (!account || !user || !pass) {
+    throw new Error("Login fields were attached check failed inside browser context.");
+  }
 
-  await page.locator('input[type="password"]')
-    .fill(CCM_PASSWORD);
+  account.value = accountId;
+  user.value = username;
+  pass.value = password;
+
+  account.dispatchEvent(new Event("input", { bubbles: true }));
+  account.dispatchEvent(new Event("change", { bubbles: true }));
+
+  user.dispatchEvent(new Event("input", { bubbles: true }));
+  user.dispatchEvent(new Event("change", { bubbles: true }));
+
+  pass.dispatchEvent(new Event("input", { bubbles: true }));
+  pass.dispatchEvent(new Event("change", { bubbles: true }));
+}, {
+  accountId: CCM_ACCOUNT_ID,
+  username: CCM_USERNAME,
+  password: CCM_PASSWORD
+});
+
+console.log("Credentials entered via browser context.");
 
   console.log("Credentials entered.");
 
