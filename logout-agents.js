@@ -33,15 +33,13 @@ function getChicagoTimeParts() {
 function shouldRunNow() {
   const now = getChicagoTimeParts();
 
-  const weekdayRun =
+  return (
     ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(now.weekday) &&
-    now.hhmm === "17:30";
-
-  const saturdayRun =
+    now.hhmm === "17:30"
+  ) || (
     now.weekday === "Sat" &&
-    now.hhmm === "12:30";
-
-  return weekdayRun || saturdayRun;
+    now.hhmm === "12:30"
+  );
 }
 
 async function sendEmail({ subject, html, text }) {
@@ -84,16 +82,25 @@ async function sendEmail({ subject, html, text }) {
   console.log("Brevo status:", res.status, responseText);
 }
 
-async function fillFirstVisible(page, selectors, value, label) {
-  for (const selector of selectors) {
-    const locator = page.locator(selector).first();
+async function getAllFrames(page) {
+  await page.waitForTimeout(5000);
+  return page.frames();
+}
 
-    if (await locator.count()) {
+async function fillFirstVisible(page, selectors, value, label) {
+  const frames = await getAllFrames(page);
+
+  for (const frame of frames) {
+    for (const selector of selectors) {
       try {
-        await locator.waitFor({ state: "visible", timeout: 3000 });
-        await locator.fill(value);
-        console.log(`Filled ${label} using selector: ${selector}`);
-        return true;
+        const locator = frame.locator(selector).first();
+
+        if (await locator.count()) {
+          await locator.waitFor({ state: "visible", timeout: 3000 });
+          await locator.fill(value);
+          console.log(`Filled ${label} using ${selector} in frame ${frame.url()}`);
+          return true;
+        }
       } catch {}
     }
   }
@@ -102,15 +109,19 @@ async function fillFirstVisible(page, selectors, value, label) {
 }
 
 async function clickFirstVisible(page, selectors, label) {
-  for (const selector of selectors) {
-    const locator = page.locator(selector).first();
+  const frames = await getAllFrames(page);
 
-    if (await locator.count()) {
+  for (const frame of frames) {
+    for (const selector of selectors) {
       try {
-        await locator.waitFor({ state: "visible", timeout: 3000 });
-        await locator.click();
-        console.log(`Clicked ${label} using selector: ${selector}`);
-        return true;
+        const locator = frame.locator(selector).first();
+
+        if (await locator.count()) {
+          await locator.waitFor({ state: "visible", timeout: 3000 });
+          await locator.click();
+          console.log(`Clicked ${label} using ${selector} in frame ${frame.url()}`);
+          return true;
+        }
       } catch {}
     }
   }
@@ -121,69 +132,63 @@ async function clickFirstVisible(page, selectors, label) {
 async function loginToCcm(page) {
   console.log("Attempting CCM login...");
 
-  const inputs = await page.locator("input").evaluateAll(inputs =>
-    inputs.map((input, index) => ({
-      index,
-      type: input.type,
-      id: input.id,
-      name: input.name,
-      placeholder: input.placeholder,
-      value: input.value,
-      outerHTML: input.outerHTML.slice(0, 300)
-    }))
-  );
+  await page.waitForLoadState("domcontentloaded", { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(5000);
 
-  console.log("LOGIN PAGE INPUTS:", JSON.stringify(inputs, null, 2));
+  console.log("LOGIN PAGE URL:", page.url());
+  console.log("LOGIN PAGE TITLE:", await page.title());
 
-  const usernameSelectors = [
-    'input[type="text"]',
-    'input[type="email"]',
-    'input:not([type])',
-    'input[id*="user" i]',
-    'input[name*="user" i]',
-    'input[id*="login" i]',
-    'input[name*="login" i]'
-  ];
+  const frames = await getAllFrames(page);
 
-  const passwordSelectors = [
-    'input[type="password"]',
-    'input[id*="pass" i]',
-    'input[name*="pass" i]'
-  ];
+  for (const frame of frames) {
+    const inputs = await frame.locator("input").evaluateAll(inputs =>
+      inputs.map((input, index) => ({
+        index,
+        type: input.type,
+        id: input.id,
+        name: input.name,
+        placeholder: input.placeholder,
+        value: input.value,
+        outerHTML: input.outerHTML.slice(0, 250)
+      }))
+    ).catch(() => []);
+
+    console.log(`FRAME URL: ${frame.url()}`);
+    console.log("FRAME INPUTS:", JSON.stringify(inputs, null, 2));
+  }
 
   const usernameFilled = await fillFirstVisible(
     page,
-    usernameSelectors,
+    [
+      'input[type="text"]',
+      'input[type="email"]',
+      'input:not([type])',
+      'input[name*="user" i]',
+      'input[id*="user" i]',
+      'input[name*="login" i]',
+      'input[id*="login" i]',
+      'input[name*="email" i]',
+      'input[id*="email" i]'
+    ],
     CCM_USERNAME,
     "username"
   );
 
   const passwordFilled = await fillFirstVisible(
     page,
-    passwordSelectors,
+    [
+      'input[type="password"]',
+      'input[name*="pass" i]',
+      'input[id*="pass" i]'
+    ],
     CCM_PASSWORD,
     "password"
   );
 
   if (!usernameFilled || !passwordFilled) {
     await page.screenshot({ path: "login-fields-not-found.png", fullPage: true });
-    throw new Error("Unable to find CCM login username/password fields. Check LOGIN PAGE INPUTS in logs.");
+    throw new Error("Unable to find CCM login username/password fields after checking all frames.");
   }
-
-  const buttons = await page.locator("input, button, a").evaluateAll(elements =>
-    elements.map((el, index) => ({
-      index,
-      tag: el.tagName,
-      type: el.getAttribute("type"),
-      id: el.id,
-      name: el.getAttribute("name"),
-      value: el.getAttribute("value"),
-      text: el.innerText,
-      outerHTML: el.outerHTML.slice(0, 300)
-    }))
-  );
-
-  console.log("LOGIN PAGE BUTTONS:", JSON.stringify(buttons, null, 2));
 
   const clicked = await clickFirstVisible(
     page,
@@ -207,20 +212,21 @@ async function loginToCcm(page) {
   }
 
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(5000);
 
   console.log("Post-login title:", await page.title());
+  console.log("Post-login URL:", page.url());
+
   await page.screenshot({ path: "after-login.png", fullPage: true });
 }
+
 async function findAgentRows(page) {
-  const rows = await page.locator("tr").evaluateAll((trs) => {
-    return trs.map((tr, index) => ({
+  return await page.locator("tr").evaluateAll(trs =>
+    trs.map((tr, index) => ({
       index,
       text: tr.innerText || ""
-    })).filter(r => r.text.trim().length > 0);
-  });
-
-  return rows;
+    })).filter(r => r.text.trim().length > 0)
+  );
 }
 
 async function selectAgentRows(page) {
@@ -237,7 +243,6 @@ async function selectAgentRows(page) {
     }
 
     return (
-      text.includes("not set") ||
       text.includes("available") ||
       text.includes("not available") ||
       text.includes("on break") ||
@@ -260,7 +265,9 @@ async function selectAgentRows(page) {
     const checkbox = tr.locator('input[type="checkbox"]').first();
 
     if (await checkbox.count()) {
-      const agentName = row.text.split("\n").map(x => x.trim()).filter(Boolean)[0] || row.text.slice(0, 80);
+      const agentName =
+        row.text.split("\n").map(x => x.trim()).filter(Boolean)[0] ||
+        row.text.slice(0, 80);
 
       if (!DRY_RUN) {
         await checkbox.check({ force: true });
@@ -306,7 +313,8 @@ async function logoutSelectedAgents(page) {
   }
 
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(5000);
+
   await page.screenshot({ path: "after-agent-logout.png", fullPage: true });
 }
 
@@ -388,6 +396,7 @@ async function main() {
     console.log("Automation completed successfully.");
   } catch (err) {
     console.error("Automation failed:", err);
+
     await page.screenshot({ path: "automation-failed.png", fullPage: true }).catch(() => {});
 
     await sendEmail({
