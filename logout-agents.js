@@ -379,13 +379,28 @@ async function main() {
   }
 
   const browser = await chromium.launch({
-    headless: true
-  });
+  headless: false,
+  args: [
+    "--disable-blink-features=AutomationControlled",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage"
+  ]
+});
 
-  const page = await browser.newPage({
-    viewport: { width: 1600, height: 1000 }
-  });
+const context = await browser.newContext({
+  viewport: { width: 1600, height: 1000 },
+  userAgent:
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+});
 
+const page = await context.newPage();
+
+await page.addInitScript(() => {
+  Object.defineProperty(navigator, "webdriver", {
+    get: () => false
+  });
+});
   try {
     console.log("Opening CCM page...");
     await page.goto(CCM_URL, { waitUntil: "networkidle", timeout: 60000 });
