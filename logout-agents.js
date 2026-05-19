@@ -1,6 +1,6 @@
 require("dotenv").config();
 const { chromium } = require("playwright");
-const BUILD_VERSION = "2026-05-18-logout-v3-accountid";
+const BUILD_VERSION = "2026-05-18-logout-v4-accountid";
 console.log("BUILD_VERSION:", BUILD_VERSION);
 
 
@@ -140,128 +140,87 @@ async function loginToCcm(page) {
     throw new Error("Missing CCM_ACCOUNT_ID environment variable.");
   }
 
-  await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
-  await page.waitForTimeout(10000);
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(15000);
 
   console.log("LOGIN PAGE URL:", page.url());
   console.log("LOGIN PAGE TITLE:", await page.title());
 
-  const html = await page.content();
-  console.log("PAGE HTML SAMPLE:", html.slice(0, 8000));
+  // Wait specifically for ASP.NET login fields
+  await page.waitForSelector('#GenericSignIn_txtAccountId', {
+    timeout: 30000
+  });
 
-const genericIndex = html.indexOf("GenericSignIn");
-console.log("GENERIC SIGNIN INDEX:", genericIndex);
+  await page.waitForSelector('#GenericSignIn_txtUsername', {
+    timeout: 30000
+  });
 
-if (genericIndex >= 0) {
-  console.log(
-    "GENERIC SIGNIN HTML:",
-    html.slice(Math.max(0, genericIndex - 2000), genericIndex + 12000)
-  );
-}
-  console.log("PAGE HTML SAMPLE:", html.slice(0, 8000));
+  await page.waitForSelector('input[type="password"]', {
+    timeout: 30000
+  });
 
-  const fieldCandidates = [
-    {
-      label: "account id",
-      value: CCM_ACCOUNT_ID,
-      selectors: [
-        'input[id*="Account" i]',
-        'input[name*="Account" i]',
-        'input[id*="AccountId" i]',
-        'input[name*="AccountId" i]',
-        'input[id*="txtAccount" i]',
-        'input[name*="txtAccount" i]'
-      ]
-    },
-    {
-      label: "username",
-      value: CCM_USERNAME,
-      selectors: [
-        'input[id*="UserName" i]',
-        'input[name*="UserName" i]',
-        'input[id*="Username" i]',
-        'input[name*="Username" i]',
-        'input[id*="txtUser" i]',
-        'input[name*="txtUser" i]'
-      ]
-    },
-    {
-      label: "password",
-      value: CCM_PASSWORD,
-      selectors: [
-        'input[type="password"]',
-        'input[id*="Password" i]',
-        'input[name*="Password" i]',
-        'input[id*="txtPassword" i]',
-        'input[name*="txtPassword" i]'
-      ]
-    }
+  console.log("Login fields detected.");
+
+  // Fill fields
+  await page.locator('#GenericSignIn_txtAccountId')
+    .fill(CCM_ACCOUNT_ID);
+
+  await page.locator('#GenericSignIn_txtUsername')
+    .fill(CCM_USERNAME);
+
+  await page.locator('input[type="password"]')
+    .fill(CCM_PASSWORD);
+
+  console.log("Credentials entered.");
+
+  // Screenshot before login
+  await page.screenshot({
+    path: "before-login-submit.png",
+    fullPage: true
+  });
+
+  // Click login button
+  const loginButtonSelectors = [
+    '#GenericSignIn_btnSignIn',
+    'input[value*="Sign in" i]',
+    'input[value*="Login" i]',
+    'button[type="submit"]',
+    'input[type="submit"]'
   ];
 
-  for (const field of fieldCandidates) {
-    let filled = false;
+  let clicked = false;
 
-    for (const selector of field.selectors) {
-      const locator = page.locator(selector).first();
+  for (const selector of loginButtonSelectors) {
+    try {
+      const btn = page.locator(selector).first();
 
-      if (await locator.count()) {
-        try {
-          await locator.waitFor({ state: "visible", timeout: 5000 });
-          await locator.fill(field.value);
-          console.log(`Filled ${field.label} using ${selector}`);
-          filled = true;
-          break;
-        } catch {}
+      if (await btn.count()) {
+        await btn.click();
+        clicked = true;
+        console.log(`Clicked login button using ${selector}`);
+        break;
       }
-    }
-
-    if (!filled) {
-      console.log(`Could not fill ${field.label} with direct selector.`);
-    }
+    } catch {}
   }
-
-  const visibleInputs = page.locator('input:not([type="hidden"])');
-  const visibleCount = await visibleInputs.count();
-
-  console.log("VISIBLE INPUT COUNT:", visibleCount);
-
-  if (visibleCount >= 3) {
-    await visibleInputs.nth(0).fill(CCM_ACCOUNT_ID);
-    await visibleInputs.nth(1).fill(CCM_USERNAME);
-    await visibleInputs.nth(2).fill(CCM_PASSWORD);
-    console.log("Filled account, username, password by visible input order.");
-  } else {
-    await page.screenshot({ path: "login-fields-missing.png", fullPage: true });
-    throw new Error("Login fields are still not visible. Need full HTML around GenericSignIn controls.");
-  }
-
-  const clicked = await clickFirstVisible(
-    page,
-    [
-      'input[type="submit"]',
-      'button[type="submit"]',
-      'input[value*="Sign" i]',
-      'input[value*="Login" i]',
-      'button:has-text("Sign in")',
-      'button:has-text("Login")',
-      'a:has-text("Sign in")',
-      'a:has-text("Login")'
-    ],
-    "login button"
-  );
 
   if (!clicked) {
+    console.log("Falling back to Enter key...");
     await page.keyboard.press("Enter");
-    console.log("Pressed Enter to submit login form.");
   }
 
-  await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
+  await page.waitForLoadState("networkidle", {
+    timeout: 60000
+  }).catch(() => {});
+
   await page.waitForTimeout(10000);
 
-  console.log("POST LOGIN TITLE:", await page.title());
   console.log("POST LOGIN URL:", page.url());
+  console.log("POST LOGIN TITLE:", await page.title());
 
-  await page.screenshot({ path: "after-login.png", fullPage: true });
+  await page.screenshot({
+    path: "after-login.png",
+    fullPage: true
+  });
 }
 
 async function findAgentRows(page) {
@@ -363,9 +322,11 @@ async function logoutSelectedAgents(page) {
 }
 
 async function main() {
-  if (!CCM_URL || !CCM_USERNAME || !CCM_PASSWORD) {
-    throw new Error("Missing CCM_URL, CCM_USERNAME, or CCM_PASSWORD environment variable.");
-  }
+ if (!CCM_URL || !CCM_ACCOUNT_ID || !CCM_USERNAME || !CCM_PASSWORD) {
+  throw new Error(
+    "Missing CCM_URL, CCM_ACCOUNT_ID, CCM_USERNAME, or CCM_PASSWORD environment variable."
+  );
+}
 
   console.log("FORCE_RUN raw:", process.env.FORCE_RUN);
   console.log("FORCE_RUN parsed:", FORCE_RUN);
