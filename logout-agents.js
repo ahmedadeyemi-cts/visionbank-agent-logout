@@ -1,6 +1,8 @@
 require("dotenv").config();
 const { chromium } = require("playwright");
 const BUILD_VERSION = "2026-05-18-logout-v6-tenant-login";
+const CONFIG_URL = process.env.CONFIG_URL;
+let runtimeConfig = null;
 console.log("BUILD_VERSION:", BUILD_VERSION);
 
 
@@ -34,16 +36,35 @@ function getChicagoTimeParts() {
   };
 }
 
-function shouldRunNow() {
-  const now = getChicagoTimeParts();
+function shouldRunNow(config) {
+  if (!config?.enabled) return false;
 
-  return (
-    ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(now.weekday) &&
-    now.hhmm === "17:30"
-  ) || (
-    now.weekday === "Sat" &&
-    now.hhmm === "12:30"
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Chicago",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).formatToParts(new Date()).map(p => [p.type, p.value])
   );
+
+  const now = {
+    weekday: parts.weekday,
+    hhmm: `${parts.hour}:${parts.minute}`
+  };
+
+  console.log("Runtime schedule check:", JSON.stringify(now));
+
+  const weekdayRun =
+    ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(now.weekday) &&
+    now.hhmm === (config.weekdayTime || "17:30");
+
+  const saturdayRun =
+    now.weekday === "Sat" &&
+    now.hhmm === (config.saturdayTime || "12:30");
+
+  return weekdayRun || saturdayRun;
 }
 
 async function sendEmail({ subject, html, text }) {
@@ -140,6 +161,35 @@ async function clickFirstVisible(page, selectors, label) {
 
   return false;
 }
+async function loadRuntimeConfig() {
+  if (!CONFIG_URL) {
+    console.log("No CONFIG_URL set. Using local env defaults.");
+    return {
+      enabled: true,
+      timezone: "America/Chicago",
+      weekdayTime: "17:30",
+      saturdayTime: "12:30",
+      targetMode: TARGET_AGENT_NAME ? "specific" : "all",
+      targetAgentName: TARGET_AGENT_NAME,
+      dryRun: DRY_RUN
+    };
+  }
+
+  const res = await fetch(CONFIG_URL, {
+    method: "GET",
+    headers: {
+      "Accept": "application/json"
+    }
+  });
+
+  const text = await res.text();
+
+  if (!res.ok) {
+    throw new Error(`Failed to load logout config: HTTP ${res.status} - ${text}`);
+  }
+
+  return JSON.parse(text);
+}
 
 async function loginToCcm(page) {
   console.log("Attempting CCM login...");
@@ -197,9 +247,14 @@ async function selectAgentRows(page) {
  const matchingRows = rows.filter(r => {
   const text = r.text.toLowerCase();
 
-  if (TARGET_AGENT_NAME) {
-    return text.includes(TARGET_AGENT_NAME.toLowerCase());
-  }
+  const configuredTarget =
+  runtimeConfig?.targetMode === "specific"
+    ? String(runtimeConfig.targetAgentName || "")
+    : "";
+
+if (configuredTarget) {
+  return text.includes(configuredTarget.toLowerCase());
+}
 
   return (
     text.includes("available") ||
@@ -228,9 +283,11 @@ async function selectAgentRows(page) {
         row.text.split("\n").map(x => x.trim()).filter(Boolean)[0] ||
         row.text.slice(0, 80);
 
-      if (!DRY_RUN) {
-        await checkbox.check({ force: true });
-      }
+      const effectiveDryRun = runtimeConfig?.dryRun === true;
+
+if (!effectiveDryRun) {
+  await checkbox.check({ force: true });
+}
 
       selectedAgents.push(agentName);
       console.log(`${DRY_RUN ? "DRY RUN selected" : "Selected"} agent: ${agentName}`);
@@ -281,17 +338,19 @@ async function main() {
 if (!CCM_URL || !CCM_USERNAME || !CCM_PASSWORD) {
   throw new Error("Missing CCM_URL, CCM_USERNAME, or CCM_PASSWORD environment variable.");
 }
+runtimeConfig = await loadRuntimeConfig();
 
+  console.log("Runtime config:", JSON.stringify(runtimeConfig));
   console.log("FORCE_RUN raw:", process.env.FORCE_RUN);
   console.log("FORCE_RUN parsed:", FORCE_RUN);
   console.log("DRY_RUN parsed:", DRY_RUN);
   console.log("TARGET_AGENT_NAME:", TARGET_AGENT_NAME || "(all matching logged-in agents)");
   console.log("Current Chicago time:", JSON.stringify(getChicagoTimeParts()));
 
-  if (!shouldRunNow() && !FORCE_RUN) {
-    console.log("Not scheduled logout time. Exiting.");
-    return;
-  }
+  if (!shouldRunNow(runtimeConfig) && !FORCE_RUN) {
+  console.log("Not scheduled logout time. Exiting.");
+  return;
+}
 
  const browser = await chromium.launch({
   headless: true,
