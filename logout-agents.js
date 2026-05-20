@@ -290,7 +290,7 @@ if (!effectiveDryRun) {
 }
 
       selectedAgents.push(agentName);
-      console.log(`${DRY_RUN ? "DRY RUN selected" : "Selected"} agent: ${agentName}`);
+      console.log(`${effectiveDryRun ? "DRY RUN selected" : "Selected"} agent: ${agentName}`);
     }
   }
 
@@ -298,10 +298,10 @@ if (!effectiveDryRun) {
 }
 
 async function logoutSelectedAgents(page) {
-  if (DRY_RUN) {
-    console.log("DRY_RUN=true, skipping Log Agent Out click.");
-    return;
-  }
+  if (runtimeConfig?.dryRun === true) {
+  console.log("Cloudflare dryRun=true, skipping Log Agent Out click.");
+  return;
+}
 
   console.log("Clicking Log Agent Out...");
 
