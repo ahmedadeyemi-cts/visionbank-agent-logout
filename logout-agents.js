@@ -1,12 +1,12 @@
 require("dotenv").config();
 const { chromium } = require("playwright");
-const BUILD_VERSION = "2026-05-18-logout-v5-accountid";
+const BUILD_VERSION = "2026-05-18-logout-v6-tenant-login";
 console.log("BUILD_VERSION:", BUILD_VERSION);
 
 
 const CCM_URL = process.env.CCM_URL;
 const CCM_USERNAME = process.env.CCM_USERNAME;
-const CCM_ACCOUNT_ID = process.env.CCM_ACCOUNT_ID;
+// const CCM_ACCOUNT_ID = process.env.CCM_ACCOUNT_ID;
 const CCM_PASSWORD = process.env.CCM_PASSWORD;
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 const ALERT_TO = process.env.ALERT_TO;
@@ -144,108 +144,40 @@ async function clickFirstVisible(page, selectors, label) {
 async function loginToCcm(page) {
   console.log("Attempting CCM login...");
 
-  if (!CCM_ACCOUNT_ID) {
-    throw new Error("Missing CCM_ACCOUNT_ID environment variable.");
-  }
-
   await page.waitForLoadState("domcontentloaded");
-  await page.waitForTimeout(20000);
+  await page.waitForTimeout(10000);
 
   console.log("LOGIN PAGE URL:", page.url());
   console.log("LOGIN PAGE TITLE:", await page.title());
 
-  await page.screenshot({
-    path: "login-page-before-fields.png",
-    fullPage: true
-  });
+  await page.waitForSelector("#GenericSignIn_txtUsername", { timeout: 30000 });
+  await page.waitForSelector("#GenericSignIn_txtPassword", { timeout: 30000 });
 
-  const accountFilled = await fillFirstVisible(
-    page,
-    [
-      '#GenericSignIn_txtAccountId',
-      'input[name*="AccountId"]',
-      'input[id*="AccountId"]'
-    ],
-    CCM_ACCOUNT_ID,
-    "Account ID"
-  );
+  await page.fill("#GenericSignIn_txtUsername", CCM_USERNAME);
+  await page.fill("#GenericSignIn_txtPassword", CCM_PASSWORD);
 
-  if (!accountFilled) {
-    throw new Error("Unable to locate Account ID field.");
-  }
+  console.log("Username and password entered.");
 
-  const usernameFilled = await fillFirstVisible(
-    page,
-    [
-      '#GenericSignIn_txtUsername',
-      'input[name*="Username"]',
-      'input[id*="Username"]',
-      'input[type="email"]',
-      'input[name="loginfmt"]'
-    ],
-    CCM_USERNAME,
-    "Username"
-  );
-
-  if (!usernameFilled) {
-    throw new Error("Unable to locate Username field.");
-  }
-
-  const passwordFilled = await fillFirstVisible(
-    page,
-    [
-      '#GenericSignIn_txtPassword',
-      'input[type="password"]',
-      'input[name*="Password"]',
-      'input[id*="Password"]'
-    ],
-    CCM_PASSWORD,
-    "Password"
-  );
-
-  if (!passwordFilled) {
-    throw new Error("Unable to locate Password field.");
-  }
-
-  console.log("Credentials entered.");
-
-  await page.screenshot({
-    path: "before-login-submit.png",
-    fullPage: true
-  });
-
-  const loginClicked = await clickFirstVisible(
-    page,
-    [
-      '#GenericSignIn_btnSignIn',
-      'input[value*="Sign in" i]',
-      'input[value*="Login" i]',
-      'button[type="submit"]',
-      'input[type="submit"]',
-      'button:has-text("Sign in")',
-      'button:has-text("Login")'
-    ],
-    "Login Button"
-  );
-
-  if (!loginClicked) {
-    console.log("Login button not found. Pressing Enter.");
-    await page.keyboard.press("Enter");
-  }
-
-  await page.waitForLoadState("networkidle", {
-    timeout: 60000
-  }).catch(() => {});
+  await page.click("#GenericSignIn_btnSignIn");
+  console.log("Sign in button clicked.");
 
   await page.waitForTimeout(15000);
+
+  await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
+  await page.waitForTimeout(10000);
 
   console.log("POST LOGIN URL:", page.url());
   console.log("POST LOGIN TITLE:", await page.title());
 
-  await page.screenshot({
-    path: "after-login.png",
-    fullPage: true
+  await page.goto("https://pop1-apps.mycontactcenter.net/admin/ccm.aspx", {
+    waitUntil: "networkidle",
+    timeout: 60000
   });
+
+  await page.waitForTimeout(10000);
+
+  console.log("CCM URL:", page.url());
+  console.log("CCM TITLE:", await page.title());
 }
 async function findAgentRows(page) {
   return await page.locator("tr").evaluateAll(trs =>
@@ -346,10 +278,8 @@ async function logoutSelectedAgents(page) {
 }
 
 async function main() {
- if (!CCM_URL || !CCM_ACCOUNT_ID || !CCM_USERNAME || !CCM_PASSWORD) {
-  throw new Error(
-    "Missing CCM_URL, CCM_ACCOUNT_ID, CCM_USERNAME, or CCM_PASSWORD environment variable."
-  );
+if (!CCM_URL || !CCM_USERNAME || !CCM_PASSWORD) {
+  throw new Error("Missing CCM_URL, CCM_USERNAME, or CCM_PASSWORD environment variable.");
 }
 
   console.log("FORCE_RUN raw:", process.env.FORCE_RUN);
