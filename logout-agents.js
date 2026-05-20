@@ -194,21 +194,21 @@ async function selectAgentRows(page) {
   const rows = await findAgentRows(page);
   console.log(`Detected ${rows.length} table rows.`);
 
-  const matchingRows = rows.filter(r => {
-    const text = r.text.toLowerCase();
+ const matchingRows = rows.filter(r => {
+  const text = r.text.toLowerCase();
 
-    if (TARGET_AGENT_NAME) {
-      return text.includes(TARGET_AGENT_NAME.toLowerCase());
-    }
+  if (TARGET_AGENT_NAME) {
+    return text.includes(TARGET_AGENT_NAME.toLowerCase());
+  }
 
-    return (
-      text.includes("available") ||
-      text.includes("not available") ||
-      text.includes("on break") ||
-      text.includes("wrap") ||
-      text.includes("call")
-    );
-  });
+  return (
+    text.includes("available") ||
+    text.includes("not available") ||
+    text.includes("busy") ||
+    text.includes("wrap") ||
+    text.includes("call")
+  );
+});
 
   console.log("Matching agent rows:", JSON.stringify(matchingRows, null, 2));
 
