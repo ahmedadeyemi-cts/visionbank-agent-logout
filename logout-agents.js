@@ -241,57 +241,58 @@ async function findAgentRows(page) {
 async function selectAgentRows(page) {
   console.log("Finding logged-in agent rows...");
 
-  const rows = await findAgentRows(page);
-  console.log(`Detected ${rows.length} table rows.`);
+  const rows = await page.locator("tr");
+  const rowCount = await rows.count();
 
- const matchingRows = rows.filter(r => {
-  const text = r.text.toLowerCase();
+  console.log(`Detected ${rowCount} table rows.`);
 
   const configuredTarget =
-  runtimeConfig?.targetMode === "specific"
-    ? String(runtimeConfig.targetAgentName || "")
-    : "";
+    runtimeConfig?.targetMode === "specific"
+      ? String(runtimeConfig.targetAgentName || "").trim()
+      : "";
 
-if (configuredTarget) {
-  return text.includes(configuredTarget.toLowerCase());
-}
-
-  return (
-    text.includes("available") ||
-    text.includes("not available") ||
-    text.includes("busy") ||
-    text.includes("wrap") ||
-    text.includes("call")
-  );
-});
-
-  console.log("Matching agent rows:", JSON.stringify(matchingRows, null, 2));
-
-  if (!matchingRows.length) {
-    await page.screenshot({ path: "no-agent-rows-found.png", fullPage: true });
-    return [];
-  }
+  const effectiveDryRun = runtimeConfig?.dryRun === true;
 
   const selectedAgents = [];
 
-  for (const row of matchingRows) {
-    const tr = page.locator("tr").nth(row.index);
-    const checkbox = tr.locator('input[type="checkbox"]').first();
+  for (let i = 0; i < rowCount; i++) {
+    const tr = rows.nth(i);
 
-    if (await checkbox.count()) {
-      const agentName =
-        row.text.split("\n").map(x => x.trim()).filter(Boolean)[0] ||
-        row.text.slice(0, 80);
+    const agentCheckbox = tr
+      .locator('input[type="checkbox"][name*="btnAgentCheckbox"], input[type="checkbox"][id*="btnAgentCheckbox"]')
+      .first();
 
-      const effectiveDryRun = runtimeConfig?.dryRun === true;
-
-if (!effectiveDryRun) {
-  await checkbox.check({ force: true });
-}
-
-      selectedAgents.push(agentName);
-      console.log(`${effectiveDryRun ? "DRY RUN selected" : "Selected"} agent: ${agentName}`);
+    if (!(await agentCheckbox.count())) {
+      continue;
     }
+
+    const rowText = (await tr.innerText().catch(() => "")).trim();
+
+    if (!rowText) {
+      continue;
+    }
+
+    if (configuredTarget && !rowText.toLowerCase().includes(configuredTarget.toLowerCase())) {
+      continue;
+    }
+
+    const agentName =
+      rowText.split("\n").map(x => x.trim()).filter(Boolean)[0] ||
+      rowText.slice(0, 80);
+
+    if (!effectiveDryRun) {
+      await agentCheckbox.check({ force: true });
+    }
+
+    selectedAgents.push(agentName);
+
+    console.log(`${effectiveDryRun ? "DRY RUN selected" : "Selected"} agent: ${agentName}`);
+  }
+
+  console.log("Selected agents:", JSON.stringify(selectedAgents, null, 2));
+
+  if (!selectedAgents.length) {
+    await page.screenshot({ path: "no-agent-rows-found.png", fullPage: true });
   }
 
   return selectedAgents;
