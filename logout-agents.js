@@ -415,9 +415,9 @@ await page.addInitScript(() => {
     await logoutSelectedAgents(page);
 
     await sendEmail({
-      subject: DRY_RUN
-        ? "VisionBank Agent Logout Automation - Dry Run"
-        : "VisionBank Agent Logout Automation - Completed",
+      subject: runtimeConfig?.dryRun === true
+  ? "VisionBank Agent Logout Automation - Dry Run"
+  : "VisionBank Agent Logout Automation - Completed",
       text: `Agents processed: ${selectedAgents.join(", ")}`,
       html: `
         <h2>VisionBank Agent Logout Automation</h2>
