@@ -2,6 +2,7 @@ require("dotenv").config();
 const { chromium } = require("playwright");
 const BUILD_VERSION = "2026-05-18-logout-v6-tenant-login";
 const CONFIG_URL = process.env.CONFIG_URL;
+const AGENT_LOGOUT_CRON_TOKEN = String(process.env.AGENT_LOGOUT_CRON_TOKEN || "").trim();
 const LEGACY_CRON_DISABLED = String(process.env.LEGACY_CRON_DISABLED || "").toLowerCase() === "true";
 let runtimeConfig = null;
 console.log("BUILD_VERSION:", BUILD_VERSION);
@@ -176,10 +177,15 @@ async function loadRuntimeConfig() {
     };
   }
 
+  if (!AGENT_LOGOUT_CRON_TOKEN) {
+    throw new Error("Missing AGENT_LOGOUT_CRON_TOKEN for protected logout configuration.");
+  }
+
   const res = await fetch(CONFIG_URL, {
     method: "GET",
     headers: {
-      "Accept": "application/json"
+      "Accept": "application/json",
+      "X-VB-Agent-Logout-Token": AGENT_LOGOUT_CRON_TOKEN
     }
   });
 
