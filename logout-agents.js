@@ -2,6 +2,7 @@ require("dotenv").config();
 const { chromium } = require("playwright");
 const BUILD_VERSION = "2026-05-18-logout-v6-tenant-login";
 const CONFIG_URL = process.env.CONFIG_URL;
+const LEGACY_CRON_DISABLED = String(process.env.LEGACY_CRON_DISABLED || "").toLowerCase() === "true";
 let runtimeConfig = null;
 console.log("BUILD_VERSION:", BUILD_VERSION);
 
@@ -336,6 +337,10 @@ async function logoutSelectedAgents(page) {
 }
 
 async function main() {
+if (LEGACY_CRON_DISABLED) {
+  console.log("Legacy Render agent logout cron is disabled. Cloudflare Worker auto-logout is authoritative.");
+  return;
+}
 if (!CCM_URL || !CCM_USERNAME || !CCM_PASSWORD) {
   throw new Error("Missing CCM_URL, CCM_USERNAME, or CCM_PASSWORD environment variable.");
 }
